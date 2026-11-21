@@ -29,7 +29,8 @@ st.markdown("""
   .block-container {padding-top: 1.2rem; padding-bottom: 1rem; max-width: 1500px;}
   h1 {font-size: 1.55rem !important; font-weight: 700 !important; margin: 0 !important; color: #101828;}
   .sub {color: #667085; font-size: 0.92rem; margin: 2px 0 10px;}
-  [data-testid="stMetricValue"] {font-size: 1.4rem; font-weight: 650;}
+  [data-testid="stMetricValue"] {font-size: 1.3rem; font-weight: 650;}
+  [data-testid="stMetric"] {padding: 8px 14px !important;}
   [data-testid="stMetricLabel"] p {font-size: 0.8rem; color: #667085;}
   .stTabs [data-baseweb="tab"] {font-size: 0.98rem; font-weight: 600; padding: 6px 4px;}
   .chip {display:inline-block; padding:2px 9px; border-radius:99px; font-size:0.78rem; font-weight:650; color:white;}
@@ -39,6 +40,8 @@ st.markdown("""
   .bar {width:170px; height:9px; border-radius:5px;
         background:linear-gradient(90deg,rgb(200,245,200),rgb(245,160,50),rgb(130,0,0));}
   h3 {font-size: 1.1rem !important; margin-top: 0.4rem !important;}
+  [data-testid="stVerticalBlock"] .stButton button {justify-content: flex-start; text-align: left;}
+  .stButton button p {font-size: 0.9rem;}
   .step {color: #2a78d6; font-size: 0.78rem; font-weight: 700; letter-spacing: .06em; margin-top: 18px;}
   .q {font-size: 1.25rem; font-weight: 700; color: #101828; margin: 2px 0 4px;}
   .a {font-size: 1.02rem; color: #344054; margin: 0 0 10px; max-width: 900px; line-height: 1.5;}
@@ -77,11 +80,14 @@ def load():
 
 
 @st.cache_data
-def run_policy(k, eff, check, netback):
+def run_policy(k, eff, check, netback, area=None):
+    """Back-test on Jan-Sep 2026. With `area`, only that area's wells compete for its k visits."""
     D = load()
     a, b = pr.SPLITS["test"]
     s = D["scores"]
     test = s[(s["d"] >= a) & (s["d"] <= b) & s["y30"].notna()]
+    if area:
+        test = test[test["area"] == area]
     costs = pr.cost_table(D["ev_costs"], netback)
     one = pr.simulate_policy(test, costs, k=k, effectiveness=eff, check_cost=check)
     curve = pr.policy_curve(test, costs, ks=(5, 10, 15, 20, 25, 30, 40, 50, 75, 100),
@@ -202,27 +208,57 @@ tab1, tab2 = st.tabs(["This Monday", "Does it work, and is it worth it?"])
 
 # ====================================================================== tab 1
 with tab1:
-    c1, c2, _ = st.columns([2, 2, 3])
+    c1, c2, c3 = st.columns([2, 2, 3])
+    c3.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+    with c3.expander("ℹ️  How the model works"):
+        sc = scores[(scores["d"] >= pr.SPLITS["test"][0]) & (scores["d"] <= pr.SPLITS["test"][1])
+                    & scores["y30"].notna()]
+        b1, b2 = sc[(sc["score"] >= 0.4) & (sc["score"] < 0.5)], sc[sc["score"] >= 0.5]
+        st.markdown(f"""
+The model works like a mechanic who has studied five years of records from **about 1,400 historical PCP wells** (2021–2026).
+
+1. **Every Monday it checks each active well** against about 50 clues from the last few weeks: hours down, pump speed, rod torque, efficiency, oil, how often it has failed, and when its rods and pump were last replaced.
+2. **It compares each well to its own normal.** "Down 6 hours a day" means little on its own; "down 6 hours a day when it's normally down 1" is a warning sign.
+3. **It learned from history which patterns came before a failure**, using about 270,000 past well-weeks where the answer is known.
+4. **It turns the clues into a probability** of a rod, pump or tubing failure 4–30 days from now. (Method: LightGBM, hundreds of small yes/no checklists that each nudge the risk up or down.)
+5. **It ranks all ~{len(latest):,} active wells each Monday by that risk.** The top of the ranking is the visit list; the second tab shows how many wells are worth visiting once visit costs are counted.
+
+**What a score means.** Checked on 2026, data the model never learned from:
+
+| Model said | Well-weeks | Actually broke within 4–30 days |
+|---|---|---|
+| 40–50% | {len(b1):,} | {b1['y30'].mean():.0%} |
+| 50% or more | {len(b2):,} | {b2['y30'].mean():.0%} |
+| *Any well (average)* | {len(sc):,} | {sc['y30'].mean():.0%} |
+
+So a well scored 55% really does break about half the time or more, roughly **4–5× the average well**. It tells you *which* wells are likely to break this month, not the exact day, and the warning signs are signs, not a confirmed broken part.
+""")
+
     area_pick = c1.selectbox("Operating area", ["All areas"] + areas,
                              format_func=lambda a: a if a == "All areas" else f"{a} ({area_counts[a]} wells)")
-    k = c2.slider("Wells the field team visits this Monday", 5, 50, 20, 5)
+    k = c2.slider("Wells visited this Monday, all areas combined" if area_pick == "All areas"
+                  else f"Wells visited this Monday in {area_pick} only", 5, 50, 20, 5,
+                  help="One shared list across every area, or, when an area is picked, that area's own crew list.")
 
     shown = (latest if area_pick == "All areas" else latest[latest["area"] == area_pick]).copy()
     shown["rank"] = np.arange(1, len(shown) + 1)
     shown["on_list"] = shown["rank"] <= k
     top = shown[shown["on_list"]]
 
-    _, pol, _ = run_policy(k, 0.5, 1500, pr.DEFAULT_NETBACK_BBL)
+    _, pol, _ = run_policy(k, 0.5, 1500, pr.DEFAULT_NETBACK_BBL, None if area_pick == "All areas" else area_pick)
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Wells to visit", f"{len(top)}", border=True,
-              help="Numbers on the map are the visit order: 1 = most likely to fail in the next 30 days.")
+    m1.metric("Wells to visit" + (", all areas" if area_pick == "All areas" else f", {area_pick}"), f"{len(top)}",
+              border=True, help="The highest-risk wells: bigger dots with a dark outline on the map.")
     m2.metric("Expected to fail among them", f"≈ {top['score'].sum():.0f}", border=True,
               help="Sum of the model's failure probabilities. On the 2026 test these were well calibrated.")
     m3.metric("Chronic wells on the list", f"{int((top['fails365'] >= 6).sum())}", border=True,
               help="Failed 6+ times in the last 12 months: candidates for a root-cause review.")
-    m4.metric("Back-tested net saving", f"${pol['net_saving_per_year'] / 1e6:,.2f}M / yr", border=True,
-              help="Jan–Sep 2026 back-test for this list size (all areas), assuming $1,500 per visit and half of "
-                   "warned failures become planned work. See the second tab.")
+    ny = pol["net_saving_per_year"]
+    m4.metric("Back-tested net saving" + ("" if area_pick == "All areas" else f", {area_pick}"),
+              f"{'' if ny >= 0 else '−'}${abs(ny) / 1e6:,.2f}M / yr", border=True,
+              help=f"Jan–Sep 2026 back-test: {k} visits a week {'across all areas' if area_pick == 'All areas' else 'in ' + area_pick + ' only'}, "
+                   "assuming $1,500 per visit and half of warned failures become planned work. "
+                   "Negative = the visits cost more than they save at this list size.")
 
     # ---- map data
     shown["fill"] = [risk_rgb(p) + [235 if on else 175] for p, on in zip(shown["score"], shown["on_list"])]
@@ -234,11 +270,6 @@ with tab1:
     wells_df = shown.sort_values("score")[["uwi", "well_name", "area", "lon", "lat", "fill", "line", "radius",
                                            "tip_risk", "tip_list", "tip_ll"]]
 
-    # one rank label per pad (wells on a pad share almost the same location)
-    on = top.copy()
-    on["pad"] = (on["lat"] / 0.004).round().astype(int).astype(str) + "_" + (on["lon"] / 0.006).round().astype(int).astype(str)
-    pads_df = on.groupby("pad").agg(lat=("lat", "mean"), lon=("lon", "mean"), best=("rank", "min")).reset_index()
-    pads_df["label"] = pads_df["best"].astype(str)
 
     polys = []
     for a in areas:
@@ -257,6 +288,18 @@ with tab1:
                       "pos": [top_pt[0], top_pt[1] + 0.006], "name": a.upper() if show_name else ""})
     polys_df = pd.DataFrame(polys)
 
+    # Selected well (clicked on the map or in the list): the map flies to it, like Google Maps.
+    sel_uwi = st.session_state.get("well_uwi")
+    sel_here = shown[shown["uwi"] == sel_uwi]
+    if len(sel_here):
+        s0 = sel_here.iloc[0]
+        view = pdk.ViewState(latitude=float(s0["lat"]), longitude=float(s0["lon"]), zoom=13.5, pitch=0, bearing=0,
+                             min_zoom=7.5, max_zoom=16, transitionDuration=900)
+        sel_df = sel_here[["lon", "lat"]]
+    else:
+        view = view_for(shown if len(shown) else latest)
+        sel_df = shown.iloc[0:0][["lon", "lat"]]
+
     layers = [
         pdk.Layer("PolygonLayer", polys_df, id="areas", get_polygon="poly", get_fill_color="fill",
                   get_line_color="line", line_width_min_pixels=1.5, stroked=True, filled=True, pickable=False),
@@ -264,16 +307,16 @@ with tab1:
                   get_fill_color="fill", get_line_color="line", get_radius="radius",
                   radius_min_pixels=3, radius_max_pixels=12, stroked=True, line_width_min_pixels=1,
                   pickable=True, auto_highlight=True),
-        pdk.Layer("TextLayer", pads_df, id="ranks", get_position=["lon", "lat"], get_text="label", get_size=11,
-                  get_color=[255, 255, 255, 255], font_weight=700,
-                  get_text_anchor='"middle"', get_alignment_baseline='"center"'),
         pdk.Layer("TextLayer", polys_df[polys_df["name"] != ""], id="area_names", get_position="pos",
                   get_text="name", get_size=12, background=True, get_background_color=[255, 255, 255, 220],
                   background_padding=[4, 2], get_color=[52, 64, 84, 255], font_weight=700,
                   get_text_anchor='"middle"', get_alignment_baseline='"bottom"'),
+        pdk.Layer("ScatterplotLayer", sel_df, id="selected", get_position=["lon", "lat"], get_radius=1,
+                  radius_min_pixels=17, filled=False, stroked=True, get_line_color=[42, 120, 214, 255],
+                  line_width_min_pixels=3, pickable=False),
     ]
     deck = pdk.Deck(
-        layers=layers, initial_view_state=view_for(shown if len(shown) else latest),
+        layers=layers, initial_view_state=view,
         map_provider="carto", map_style="light",
         tooltip={"html": "<div style='font-family:monospace;font-size:14px;font-weight:700'>{uwi}</div>"
                          "{well_name}<br/>{area} · {tip_ll}<br/>Risk next 30 days: <b>{tip_risk}</b><br/>"
@@ -284,18 +327,25 @@ with tab1:
 
     left, right = st.columns([3, 2], gap="medium")
     with left:
-        event = st.pydeck_chart(deck, height=620, on_select="rerun", selection_mode="single-object", key="map")
-        st.markdown('<div class="legend"><span>Won\'t fail</span><span class="bar"></span>'
-                    '<span>Likely to fail in the next month</span><span style="margin-left:12px">'
-                    '<b>Numbers</b> = visit order · hover a dot for its UWI · click for details</span></div>',
-                    unsafe_allow_html=True)
+        # A new key per selection makes the map re-centre on the selected well.
+        event = st.pydeck_chart(deck, height=620, on_select="rerun", selection_mode="single-object",
+                                key=f"map_{area_pick}_{sel_uwi if len(sel_here) else 'all'}")
+        lg1, lg2 = st.columns([4, 1])
+        lg1.markdown('<div class="legend"><span>Won\'t fail</span><span class="bar"></span>'
+                     '<span>Likely to fail in the next month</span><span style="margin-left:12px">'
+                     '<b>Big outlined dots</b> = this week\'s visits · click a dot or a well in the list to zoom to it'
+                     '</span></div>',
+                     unsafe_allow_html=True)
+        if len(sel_here) and lg2.button("Show whole area", width="stretch"):
+            st.session_state.pop("well_uwi", None)
+            st.rerun()
     try:
         objs = event.selection.objects.get("wells", []) if event and event.selection else []
-        if objs:
+        if objs and objs[0]["uwi"] != sel_uwi:
             st.session_state["well_uwi"] = objs[0]["uwi"]
-    except Exception:
+            st.rerun()
+    except (AttributeError, KeyError, TypeError):
         pass
-    sel_uwi = st.session_state.get("well_uwi")
 
     costs = pr.cost_table(D["ev_costs"])
     cost_key = {"RODS": "Rods", "PUMP": "Pump", "TUBING": "Tubing"}
@@ -318,18 +368,28 @@ with tab1:
 
     with right:
         st.markdown(f"### Monday visit list{'' if area_pick == 'All areas' else ' · ' + area_pick}")
-        sel_row = shown[shown["uwi"] == sel_uwi]
-        if len(sel_row) and not sel_row.iloc[0]["on_list"]:
-            r = sel_row.iloc[0]
-            with st.expander(f"Selected · {r['uwi']} · {r['area']} · {r['score']:.0%} (not on the list)", expanded=True):
+        st.caption("Click a well to zoom the map to it and see what's wrong.")
+        if len(sel_here) and not sel_here.iloc[0]["on_list"]:
+            r = sel_here.iloc[0]
+            with st.container(border=True):
+                st.markdown(f"**Selected: {r['uwi']}** · {r['area']} · not on this week's list")
                 well_panel(r)
         box = st.container(height=560, border=False)
         with box:
             for _, r in top.iterrows():
                 chronic = " · 🔁 chronic" if r["fails365"] >= 6 else ""
-                with st.expander(f"#{r['rank']}  {r['uwi']} · {r['area']} · {r['score']:.0%}{chronic}",
-                                 expanded=(r["uwi"] == sel_uwi)):
-                    well_panel(r)
+                is_sel = r["uwi"] == sel_uwi
+                label = f"{'▾' if is_sel else '▸'}  #{r['rank']}  {r['uwi']} · {r['area']} · {r['score']:.0%}{chronic}"
+                if st.button(label, key=f"pick_{r['uwi']}", width="stretch",
+                             type="primary" if is_sel else "secondary"):
+                    if is_sel:
+                        st.session_state.pop("well_uwi", None)     # click again to close
+                    else:
+                        st.session_state["well_uwi"] = r["uwi"]
+                    st.rerun()
+                if is_sel:
+                    with st.container(border=True):
+                        well_panel(r)
         st.download_button("Download the list (CSV)",
                            top[["rank", "uwi", "well_name", "area", "score", "fails365", "days_since_fail",
                                 "last_ftype", "make", "lat", "lon"]].to_csv(index=False),
@@ -486,6 +546,44 @@ re-running the test on random mixes of the 38 test weeks 1,000 times.
     else:
         st.markdown('<div class="a">With these assumptions visits cost more than they save: they need to be '
                     'cheaper or prevent more failures.</div>', unsafe_allow_html=True)
+
+    # ---- right, wasted, missed: counted once per failure, per week
+    wk = one["weeks"]
+    caught = one["events_warned"] / wk
+    wasted = (one["actions"] - one["events_warned"]) / wk
+    missed = (one["events"] - one["events_warned"]) / wk
+    st.markdown(f'<div class="q" style="font-size:1.05rem;margin-top:14px">What happens in an average week '
+                f'with {kk} visits</div>', unsafe_allow_html=True)
+    o1, o2, o3 = st.columns(3)
+    tile(o1, f"{caught:.0f}", "✅ visits that catch a failure in time (true positives)")
+    tile(o2, f"{wasted:.0f}", "⚠️ visits to a well that didn't fail in the next month (false alarms)")
+    tile(o3, f"{missed:.0f}", f"❌ failures with no warning (missed), out of about {one['events'] / wk:.0f} a week")
+    tst = scores[(scores["d"] >= pr.SPLITS["test"][0]) & (scores["d"] <= pr.SPLITS["test"][1]) & scores["y30"].notna()]
+    healthy_wk = (tst["y30"] == 0).sum() / tst["d"].nunique()
+    fp_share = wasted / healthy_wk
+    st.markdown(f'<div class="a" style="margin-top:8px">Only about <b>{fp_share:.1%}</b> of healthy wells get a visit '
+                f'(about 1 in {max(1, round(1 / fp_share)) if fp_share else "∞"}), and many "false alarms" are wells that '
+                f'broke a few days too early to count or a few weeks later. What limits us is how many wells a crew can afford to visit: about '
+                f'{one["events"] / wk:.0f} pumps fail a week, and {kk} truck visits can\'t reach them all.</div>',
+                unsafe_allow_html=True)
+
+    # ---- cheaper screening
+    truck = run_policy(20, eff, 1500, netback)[1]
+    remote = run_policy(100, eff, 200, netback)[1]
+    st.markdown('<div class="q" style="font-size:1.05rem;margin-top:14px">A cheaper way to check catches far more'
+                '</div><div class="a">If an engineer first reviews the top 100 wells\' data remotely (about $200 '
+                'each, an assumption to confirm), only the worrying ones need a truck. Same model, same data:</div>',
+                unsafe_allow_html=True)
+    cmp_df = pd.DataFrame({
+        "": ["Truck visits only", "Remote screen first"],
+        "Wells checked a week": ["20 at $1,500", "100 at $200"],
+        "Failures warned in time": [f"{truck['event_recall']:.0%}", f"{remote['event_recall']:.0%}"],
+        "Missed a week": [f"{(truck['events'] - truck['events_warned']) / truck['weeks']:.0f}",
+                          f"{(remote['events'] - remote['events_warned']) / remote['weeks']:.0f}"],
+        "Saved a year": [f"${truck['net_saving_per_year'] / 1e6:,.1f}M", f"${remote['net_saving_per_year'] / 1e6:,.1f}M"],
+    })
+    st.dataframe(cmp_df, hide_index=True, width="stretch")
+    st.caption("Uses the prevention rate and oil price set above. Back-test on Jan–Sep 2026.")
 
     # ---- 5. bigger lever
     section("5 · THE BIGGER PRIZE", "The real money is in the wells that keep breaking.",

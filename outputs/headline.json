@@ -1,0 +1,25 @@
+{
+  "period": "Jun 2025 - May 2026",
+  "failures": 1919,
+  "repair_cost": 23487580.34,
+  "lost_oil_m3": 25188.339848215757,
+  "lost_oil_value": 9759264.59060214,
+  "total_cost": 33246844.93060214,
+  "repeat_30d_share": 0.2824387701928088,
+  "repeat_30d_cost": 9128618.7252969,
+  "netback_bbl": 61.6,
+  "latest_week": "2026-10-26",
+  "wells_scored_latest": 1061,
+  "model_top25_precision": 0.5536842105263158,
+  "rule_top25_precision": 0.4568421052631579,
+  "model_auc": 0.7766945827499858,
+  "base_rate": 0.12727226759032184,
+  "gap_vs_rule_ci95": [
+    0.06526315789473697,
+    0.12950000000000017
+  ],
+  "walk_forward_top25_range": [
+    0.4091666666666667,
+    0.5536842105263158
+  ]
+}

@@ -1,7 +1,7 @@
-The three Datathon files (names exactly as below):
+Put the three Datathon files here (names exactly as below). They are not in the repo: the competition rules don't allow redistributing the dataset.
 
-- daily_production.parquet (about 200 MB, not in the repo: add it yourself)
-- well_jobs.parquet (included)
-- production_failures.parquet (included)
+- daily_production.parquet
+- well_jobs.parquet
+- production_failures.parquet
 
 The app runs without them (it reads outputs/). You need all three to rebuild outputs/.

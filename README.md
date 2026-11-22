@@ -1,6 +1,18 @@
 # Pump Failure Early Warning
 
-Can we predict which Strathcona heavy-oil wells will have a rod, pump or tubing failure in the next month, and when is it cheaper to fix the problem before it breaks?
+**Team Neurons** · Regan, Naveen, Suhayb, Kashif · DSMLC Fall 2026 Datathon (Strathcona × Canary Labs)
+
+| | |
+|---|---|
+| 🎥 **5-min summary video** | [youtu.be/X4oi_MgnKqE](https://youtu.be/X4oi_MgnKqE) |
+| 📊 **Slides** | [slides.pdf](slides.pdf) |
+| 💻 **Run the app** | `pip install -r requirements.txt` then `streamlit run app.py` |
+
+## Research question
+Can we predict which Strathcona heavy-oil wells will have a rod, pump or tubing failure in the next 4–30 days, and when is it cheaper to fix the problem before it breaks?
+
+## Motivation
+Pump failures cost Strathcona's heavy-oil wells about **$33M a year** (1,919 failures, Jun 2025–May 2026), and 28% come back within 30 days of the last repair. Field crews can only visit so many wells a week, so the real question is *which* wells. A ranked weekly list, with reasons, turns surprise breakdowns into planned work.
 
 **Solution type: AI/ML prototype.** A LightGBM failure-risk model ranks every well each week, and a Streamlit app turns the ranking into a visit list for the field team: which wells to check, why, and what it saves.
 
@@ -43,7 +55,7 @@ On a back-test over Jan–Sep 2026 (data the model never saw), every producing P
 - **The model holds on the official failure log alone** (ROC AUC 0.78), so building labels from repair jobs didn't inflate the results.
 
 ## Data
-Three files from the DSMLC Dataset Handbook, in `data/`. The two small ones are in the repo; `daily_production.parquet` (about 200 MB) is too big for GitHub, so add it yourself to rebuild the model.
+Three files from the DSMLC Dataset Handbook. They are **not in this repo**, because the competition rules don't allow redistributing the dataset; put them in `data/` to rebuild the model.
 
 | File | Grain | Used for |
 |---|---|---|
@@ -66,9 +78,10 @@ Outside source: Strathcona's Q3 2026 results, used for the netback ($99.47 sales
 ├── app.py                              Streamlit app: weekly map + visit list, cost simulator, model check
 ├── pump_risk.py                        events, features, model, evaluation and cost logic (shared)
 ├── outputs/                            model, scores and test results written by pump_risk.py, read by the app
-├── data/                               raw parquet files (daily_production.parquet not in the repo, see Data)
+├── data/                               put the three raw parquet files here (not in the repo, see Data)
 ├── notebooks/00_exploratory.ipynb      first look at the data (missing values)
 ├── docs/app.png                        screenshot for this README
+├── slides.pdf                          presentation slides
 └── requirements.txt
 ```
 
@@ -92,6 +105,13 @@ streamlit run app.py
 - The model is close to what daily data can predict: extra short-term and equipment features, recency weighting and tuning all moved the year-by-year result by about one point.
 - The number of training rounds was tuned on 2025, and the feature set was checked on the 2023–2026 year-by-year test, so the 2025–2026 results are slightly optimistic.
 - Warning signs in the app compare this week with the well's own 90-day normal. They are signs, not a confirmed diagnosis.
+
+## External resources
+- Strathcona Resources Q3 2026 results (netback per barrel), cited in Data above.
+- Open-source libraries: LightGBM, DuckDB, pandas, scikit-learn, Streamlit, pydeck, Plotly. Base map tiles © OpenStreetMap contributors, © CARTO.
+
+## AI disclosure
+We used AI assistants (Claude) to help write and debug code (the DuckDB feature queries, the LightGBM training and walk-forward evaluation, and the Streamlit app), to review the validation for time-series leakage, and to draft and edit the README, charts and slide text. The team chose the research question and approach, checked the outputs, and verified the results and figures quoted here against the code and data.
 
 ## Next steps
 - Pilot the weekly list in the Winter area for 8 weeks and record what the field team finds.

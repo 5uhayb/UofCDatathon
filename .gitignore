@@ -1,3 +1,4 @@
-﻿data/daily_production.parquet
+data/*.parquet
 __pycache__/
 .ipynb_checkpoints/
+.claude/

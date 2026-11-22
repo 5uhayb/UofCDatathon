@@ -18,7 +18,7 @@ On a back-test over Jan–Sep 2026 (data the model never saw), every producing P
 - **About 4.5× better than picking wells at random**, and ahead of the best simple rule by **+7 to +13 points** (95% range, resampling the 38 test weeks).
 - **Not one lucky year.** Retrained on all earlier years and tested on each year in turn, the model beats the rule every year: 41% vs 39% (2023), 43% vs 38% (2024), 48% vs 41% (2025), 55% vs 46% (2026).
 - **Its probabilities are honest:** when it says 30%, about 30% of those wells fail.
-- **Strongest in Winter (AUC 0.81), weakest in Cactus Lake (0.71) and Cosine (0.68).**
+- **Strongest in Winter (AUC 0.81), weakest in Cosine (0.68) and Bodo East (0.70).**
 - **Failures cost about $33M a year.** Between Jun 2025 and May 2026 there were 1,919 logged failures: $23.5M in repair jobs plus 25,200 m³ of lost oil ($9.8M at a $61.60/bbl netback).
 - **28% of failures come back within 30 days** of the last repair on the same well. Those repeats cost about $9.1M a year. The top 50 wells produce 21% of all failures.
 - **Rods are three-quarters of failures.** A rod failure caught early saves about $8.9k, mostly in lost oil and in rig jobs that are no longer needed.
@@ -68,6 +68,7 @@ streamlit run app.py         # the app
 - The cost of an action and the share of failures it prevents are assumptions, shown with a sensitivity table.
 - Daily averages hide short events. Rod torque is recorded on only about a quarter of well-days.
 - The model is close to what daily data can predict: extra short-term and equipment features, recency weighting and tuning all moved the year-by-year result by about one point.
+- The number of training rounds was tuned on 2025, and the feature set was checked on the 2023–2026 year-by-year test, so the 2025–2026 results are slightly optimistic.
 - Warning signs in the app compare this week with the well's own 90-day normal. They are signs, not a confirmed diagnosis.
 
 ## Next steps

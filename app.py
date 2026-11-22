@@ -595,7 +595,7 @@ re-running the test on random mixes of the 38 test weeks 1,000 times.
     section("6 · CAN WE TRUST THE TEST?", "How we made sure the results aren't too good to be true.", "")
     st.markdown("""
 - **No peeking at the future.** The model only ever sees data from before the Monday it's predicting.
-- **Tested on data it never saw.** It learned from 2021–2024 and was graded on 2026.
+- **Tested on data it never saw.** It learned from data up to Nov 2025 and was graded on Jan–Sep 2026.
 - **A warning only counts if it's early.** The failure has to happen at least 4 days after the warning, so spotting a well that's already broken earns nothing.
 - **Checked against the official failure log**, not just our own reconstruction of past failures, and the results hold.
 """)

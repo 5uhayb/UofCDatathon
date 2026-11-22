@@ -2,10 +2,27 @@
 
 Can we predict which Strathcona heavy-oil wells will have a rod, pump or tubing failure in the next month, and when is it cheaper to fix the problem before it breaks?
 
-**Solution type: AI/ML prototype.** The prototype is a failure-risk model with a Streamlit app that the field team uses to work with it.
+**Solution type: AI/ML prototype.** A LightGBM failure-risk model ranks every well each week, and a Streamlit app turns the ranking into a visit list for the field team: which wells to check, why, and what it saves.
+
+![The app: weekly risk map and visit list](docs/app.png)
+
+## Quick start
+```
+pip install -r requirements.txt
+streamlit run app.py
+```
+The app runs from the model outputs already in `outputs/`, so it doesn't need the raw data. To rebuild the model from scratch, see [Run it](#run-it).
+
+## What the app does
+- **This Monday:** a map of every well, coloured from light green (healthy) to dark red (likely to fail this month), and the weekly visit list in two groups:
+  - **Chronic wells → engineering review.** Wells that failed 6+ times in 12 months; another quick repair won't hold.
+  - **New warnings → field check.** Wells that aren't chronic but are at risk now; this is where the model beats a "most-failed wells" list.
+
+  Click a well to zoom to it and see its warning signs (compared with its own normal), failure history, suggested action and cost.
+- **Does it work, and is it worth it?** The back-test results in plain language, and sliders for visit cost, prevention rate and oil price that show the yearly saving.
 
 ## Key results
-On a back-test over Jan–Sep 2026 (data the model never saw), every producing PCP well (about 1,000 a week) was scored each Monday by a model retrained on everything up to Nov 2025:
+On a back-test over Jan–Sep 2026 (data the model never saw), every producing PCP well (about 1,000 a week) was scored once a week, on Mondays, by a model retrained on everything up to Nov 2025:
 
 | Method | ROC AUC | Of the weekly top 25, share that failed within 4–30 days |
 |---|---|---|
@@ -26,7 +43,7 @@ On a back-test over Jan–Sep 2026 (data the model never saw), every producing P
 - **The model holds on the official failure log alone** (ROC AUC 0.78), so building labels from repair jobs didn't inflate the results.
 
 ## Data
-Three files from the DSMLC Dataset Handbook. Put them in `data/`; they are not included in this folder.
+Three files from the DSMLC Dataset Handbook, in `data/`. The two small ones are in the repo; `daily_production.parquet` (about 200 MB) is too big for GitHub, so add it yourself to rebuild the model.
 
 | File | Grain | Used for |
 |---|---|---|
@@ -34,7 +51,7 @@ Three files from the DSMLC Dataset Handbook. Put them in `data/`; they are not i
 | `production_failures.parquet` | one row per failure, mid-2025 onward | official failure labels and failure type |
 | `well_jobs.parquet` | one row per job, 2021–2026 | failure history before 2025 (repair jobs), repair cost (`field_est_total`) |
 
-Outside source: Strathcona's Q3 2026 results, used for the netback ($99.47 sales − $22.97 royalties − $5.77 energy opex − $9.13 transport per boe).
+Outside source: Strathcona's Q3 2026 results, used for the netback ($99.47 sales − $22.97 royalties − $5.77 energy opex − $9.13 transport per boe = $61.60). Non-energy opex ($10.56) is left out because it's paid whether a pump runs or not. The dataset's wells produce about 21,000 bbl/d, in line with the "approximately 20 Mbbls / d" Strathcona reports for Lloydminster Conventional heavy oil.
 
 ## Method
 - **A failure history back to 2021.** The failure log starts in mid-2025, but 99% of logged failures have a repair job within 3 days. Rod, pump and tubing repair jobs (which match a logged failure 64–96% of the time) stand in for failures before then. Log rows and job rows on the same well within 3 days are merged into one event.
@@ -46,20 +63,25 @@ Outside source: Strathcona's Q3 2026 results, used for the netback ($99.47 sales
 
 ## Project structure
 ```
-├── data/                               the three parquet files (not included)
-├── notebooks/00_exploratory.ipynb      first look at the data (missing values)
+├── app.py                              Streamlit app: weekly map + visit list, cost simulator, model check
 ├── pump_risk.py                        events, features, model, evaluation and cost logic (shared)
-├── app.py                              Streamlit app: Monday map + visit list, cost simulator, model check
-├── mockups/                            early HTML mockup of the map (placeholder numbers)
 ├── outputs/                            model, scores and test results written by pump_risk.py, read by the app
+├── data/                               raw parquet files (daily_production.parquet not in the repo, see Data)
+├── notebooks/00_exploratory.ipynb      first look at the data (missing values)
+├── docs/app.png                        screenshot for this README
 └── requirements.txt
 ```
 
 ## Run it
+Just the app (uses the outputs in the repo):
 ```
 pip install -r requirements.txt
+streamlit run app.py
+```
+Rebuild everything from the raw data (needs all three files in `data/`):
+```
 python pump_risk.py          # builds outputs/ (a few minutes: it retrains for the year-by-year test)
-streamlit run app.py         # the app
+streamlit run app.py
 ```
 
 ## Limitations
@@ -74,5 +96,6 @@ streamlit run app.py         # the app
 ## Next steps
 - Pilot the weekly list in the Winter area for 8 weeks and record what the field team finds.
 - Root-cause review for chronic wells, as a separate track from the weekly list.
-- Feed hourly torque and current from the Canary historian instead of daily averages.
+- Plug into the Canary historian: read live well data from it, write each well's risk score back as a tag so operators see it on the screens they already use, and alarm when a well's risk jumps between weekly lists.
+- Feed hourly torque and current from Canary instead of daily averages.
 - A time-to-failure (survival) model for "when", and a failure-type model so the right crew is booked.

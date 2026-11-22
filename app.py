@@ -1,4 +1,4 @@
-﻿"""Pump Failure Early Warning: Streamlit front end for the model.
+"""Pump Failure Early Warning: Streamlit front end for the model.
 
 Run `python pump_risk.py` once to build outputs/, then `streamlit run app.py`.
 """
@@ -339,6 +339,38 @@ So a well scored 55% really does break about half the time or more, roughly **4�
         if len(sel_here) and lg2.button("Show whole area", width="stretch"):
             st.session_state.pop("well_uwi", None)
             st.rerun()
+
+        # ---- selected well history, under the map
+        if sel_uwi in set(latest["uwi"]):
+            w = scores[scores["uwi"] == sel_uwi].sort_values("d")
+            ev = events[(events["uwi"] == sel_uwi) & (events["d"] >= w["d"].min())]
+            st.markdown(f"### {sel_uwi} · history")
+            h1, h2 = st.columns(2)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=w["d"], y=w["score"] * 100, mode="lines", name="Risk score",
+                                     line=dict(color=BLUE, width=2), hovertemplate="%{x|%d %b %Y}: %{y:.0f}%<extra></extra>"))
+            fig.add_trace(go.Scatter(x=ev["d"], y=[0] * len(ev), mode="markers", name="Actual failure",
+                                     marker=dict(color=RED, size=10, symbol="x"), text=ev["ftype"],
+                                     hovertemplate="%{x|%d %b %Y}: %{text} failure<extra></extra>"))
+            fig.update_yaxes(title="Risk (%)", rangemode="tozero")
+            fig.update_layout(title=dict(text="Weekly risk score vs actual failures", font=dict(size=14)))
+            h1.plotly_chart(style(fig, 280), width="stretch")
+            sig = {"Hours down per day": "hd7", "Oil rate (m³/d)": "oil7", "Rod torque (ft·lb)": "tq7",
+                   "Pump speed (rpm)": "rpm7", "Pump efficiency": "eff7"}
+            with h2:
+                pick = st.selectbox("Pump signal", list(sig), label_visibility="collapsed")
+                if w[sig[pick]].notna().sum():
+                    f = go.Figure(go.Scatter(x=w["d"], y=w[sig[pick]], mode="lines", line=dict(color=BLUE, width=2),
+                                             hovertemplate="%{x|%d %b %Y}: %{y:.2f}<extra></extra>"))
+                    for d in ev["d"]:
+                        f.add_vline(x=d, line=dict(color=RED, width=1, dash="dot"))
+                    f.update_layout(title=dict(text=f"{pick}, 7-day average · red lines = failures", font=dict(size=14)),
+                                    showlegend=False)
+                    st.plotly_chart(style(f, 240), width="stretch")
+                else:
+                    st.info(f"No {pick.lower()} recorded for this well.")
+            st.caption("Each week is scored by a model trained only on data from before it (2025 by the 2021–24 "
+                       "model, 2026 by a model retrained up to Nov 2025).")
     try:
         objs = event.selection.objects.get("wells", []) if event and event.selection else []
         if objs and objs[0]["uwi"] != sel_uwi:
@@ -374,7 +406,8 @@ So a well scored 55% really does break about half the time or more, roughly **4�
             with st.container(border=True):
                 st.markdown(f"**Selected: {r['uwi']}** · {r['area']} · not on this week's list")
                 well_panel(r)
-        box = st.container(height=560, border=False)
+        off_list = len(sel_here) and not sel_here.iloc[0]["on_list"]
+        box = st.container(height=420 if off_list else 600, border=False)
         with box:
             for _, r in top.iterrows():
                 chronic = " · 🔁 chronic" if r["fails365"] >= 6 else ""
@@ -394,40 +427,6 @@ So a well scored 55% really does break about half the time or more, roughly **4�
                            top[["rank", "uwi", "well_name", "area", "score", "fails365", "days_since_fail",
                                 "last_ftype", "make", "lat", "lon"]].to_csv(index=False),
                            f"visit_list_{latest_day:%Y%m%d}.csv", "text/csv")
-
-    # ---- selected well history, under the map
-    if sel_uwi in set(latest["uwi"]):
-        w = scores[scores["uwi"] == sel_uwi].sort_values("d")
-        ev = events[(events["uwi"] == sel_uwi) & (events["d"] >= w["d"].min())]
-        st.markdown(f"### {sel_uwi} · history")
-        h1, h2 = st.columns(2)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=w["d"], y=w["score"] * 100, mode="lines", name="Risk score",
-                                 line=dict(color=BLUE, width=2), hovertemplate="%{x|%d %b %Y}: %{y:.0f}%<extra></extra>"))
-        fig.add_trace(go.Scatter(x=ev["d"], y=[0] * len(ev), mode="markers", name="Actual failure",
-                                 marker=dict(color=RED, size=10, symbol="x"), text=ev["ftype"],
-                                 hovertemplate="%{x|%d %b %Y}: %{text} failure<extra></extra>"))
-        fig.update_yaxes(title="Risk (%)", rangemode="tozero")
-        fig.update_layout(title=dict(text="Weekly risk score vs actual failures", font=dict(size=14)))
-        h1.plotly_chart(style(fig, 280), width="stretch")
-        sig = {"Hours down per day": "hd7", "Oil rate (m³/d)": "oil7", "Rod torque (ft·lb)": "tq7",
-               "Pump speed (rpm)": "rpm7", "Pump efficiency": "eff7"}
-        with h2:
-            pick = st.segmented_control("Signal", list(sig), default="Hours down per day",
-                                        label_visibility="collapsed") or "Hours down per day"
-            if w[sig[pick]].notna().sum():
-                f = go.Figure(go.Scatter(x=w["d"], y=w[sig[pick]], mode="lines", line=dict(color=BLUE, width=2),
-                                         hovertemplate="%{x|%d %b %Y}: %{y:.2f}<extra></extra>"))
-                for d in ev["d"]:
-                    f.add_vline(x=d, line=dict(color=RED, width=1, dash="dot"))
-                f.update_layout(title=dict(text=f"{pick}, 7-day average · red lines = failures", font=dict(size=14)),
-                                showlegend=False)
-                st.plotly_chart(style(f, 240), width="stretch")
-            else:
-                st.info(f"No {pick.lower()} recorded for this well.")
-        st.caption("Each week is scored by a model trained only on data from before it (2025 by the 2021–24 "
-                   "model, 2026 by a model retrained up to Nov 2025).")
-
 
 # ====================================================================== tab 2
 def tile(col, big, label):

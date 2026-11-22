@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| 🎥 **5-min summary video** | [youtu.be/X4oi_MgnKqE](https://youtu.be/X4oi_MgnKqE) |
+| 🎥 **5-min summary video** | [youtu.be/mdk4CIaa69U](https://youtu.be/mdk4CIaa69U) |
 | 📊 **Slides** | [slides.pdf](slides.pdf) |
 | 💻 **Run the app** | `pip install -r requirements.txt` then `streamlit run app.py` |
 

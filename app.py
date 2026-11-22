@@ -15,6 +15,7 @@ import pump_risk as pr
 
 OUT = Path(__file__).resolve().parent / "outputs"
 BLUE, LIGHT_BLUE, ORANGE, RED, INK, MUTED, GRID = "#2a78d6", "#a9c8ef", "#eb6834", "#b42318", "#101828", "#667085", "#eaecf0"
+SOFT_GRID = "rgba(128,128,128,0.22)"        # readable on light and dark backgrounds
 AREA_PALETTE = [
     (31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 86, 75),
     (227, 119, 194), (23, 190, 207), (188, 189, 34), (127, 127, 127), (0, 92, 175), (255, 187, 120),
@@ -27,7 +28,7 @@ st.markdown("""
   #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {visibility: hidden; height: 0;}
   [data-testid="stHeader"] {background: transparent; height: 0;}
   .block-container {padding-top: 1.2rem; padding-bottom: 1rem; max-width: 1500px;}
-  h1 {font-size: 1.55rem !important; font-weight: 700 !important; margin: 0 !important; color: #101828;}
+  h1 {font-size: 1.55rem !important; font-weight: 700 !important; margin: 0 !important;}
   .sub {color: #667085; font-size: 0.92rem; margin: 2px 0 10px;}
   [data-testid="stMetricValue"] {font-size: 1.3rem; font-weight: 650;}
   [data-testid="stMetric"] {padding: 8px 14px !important;}
@@ -36,17 +37,18 @@ st.markdown("""
   .chip {display:inline-block; padding:2px 9px; border-radius:99px; font-size:0.78rem; font-weight:650; color:white;}
   .sign {margin: 2px 0; font-size: 0.9rem;}
   .muted {color: #667085; font-size: 0.85rem;}
-  .legend {display:flex; align-items:center; gap:8px; font-size:0.8rem; color:#475467; margin:4px 0 0;}
+  .legend {display:flex; align-items:center; gap:8px; font-size:0.8rem; color:#667085; margin:4px 0 0;}
   .bar {width:170px; height:9px; border-radius:5px;
         background:linear-gradient(90deg,rgb(200,245,200),rgb(245,160,50),rgb(130,0,0));}
   h3 {font-size: 1.1rem !important; margin-top: 0.4rem !important;}
   [data-testid="stVerticalBlock"] .stButton button {justify-content: flex-start; text-align: left;}
   .stButton button p {font-size: 0.9rem;}
   .step {color: #2a78d6; font-size: 0.78rem; font-weight: 700; letter-spacing: .06em; margin-top: 18px;}
-  .q {font-size: 1.25rem; font-weight: 700; color: #101828; margin: 2px 0 4px;}
-  .a {font-size: 1.02rem; color: #344054; margin: 0 0 10px; max-width: 900px; line-height: 1.5;}
-  .big {font-size: 2.1rem; font-weight: 750; color: #101828; line-height: 1.1;}
-  .tile {border: 1px solid #eaecf0; border-radius: 12px; padding: 14px 16px; background: #fcfcfd; height: 100%;}
+  .q {font-size: 1.25rem; font-weight: 700; margin: 2px 0 4px;}
+  .a {font-size: 1.02rem; opacity: 0.85; margin: 0 0 10px; max-width: 900px; line-height: 1.5;}
+  .big {font-size: 2.1rem; font-weight: 750; line-height: 1.1;}
+  .tile {border: 1px solid rgba(128,128,128,0.25); border-radius: 12px; padding: 14px 16px;
+         background: rgba(128,128,128,0.06); height: 100%;}
   .tile .lbl {color: #667085; font-size: 0.85rem; margin-top: 4px;}
 </style>
 """, unsafe_allow_html=True)
@@ -54,10 +56,10 @@ st.markdown("""
 
 def style(fig, height=320):
     fig.update_layout(template="plotly_white", height=height, margin=dict(l=10, r=10, t=40, b=10),
-                      font=dict(color=INK, size=13), hoverlabel=dict(bgcolor="white"),
+                      font=dict(size=13), hoverlabel=dict(bgcolor="white", font_color=INK),
                       legend=dict(orientation="h", y=1.1, x=0))
-    fig.update_xaxes(showgrid=False, linecolor=GRID)
-    fig.update_yaxes(gridcolor=GRID, zeroline=False)
+    fig.update_xaxes(showgrid=False, linecolor=SOFT_GRID)
+    fig.update_yaxes(gridcolor=SOFT_GRID, zeroline=False)
     return fig
 
 
@@ -79,20 +81,55 @@ def load():
                 head=json.loads((OUT / "headline.json").read_text()))
 
 
-@st.cache_data
-def run_policy(k, eff, check, netback, area=None):
-    """Back-test on Jan-Sep 2026. With `area`, only that area's wells compete for its k visits."""
-    D = load()
+POLICY_KS = (5, 10, 15, 20, 25, 30, 40, 50, 75, 100)
+
+
+@st.cache_data(show_spinner=False)
+def costs_for(netback):
+    return pr.cost_table(load()["ev_costs"], netback)
+
+
+@st.cache_data(show_spinner=False)
+def picks(k, area=None):
+    """Replay Jan-Sep 2026: each week visit the top-k wells not visited in the last 30 days (same rules as
+    pr.simulate_policy). Which wells get visited doesn't depend on costs, so this runs once per k and the
+    cost sliders only redo the arithmetic in policy()."""
     a, b = pr.SPLITS["test"]
-    s = D["scores"]
+    s = load()["scores"]
     test = s[(s["d"] >= a) & (s["d"] <= b) & s["y30"].notna()]
     if area:
         test = test[test["area"] == area]
-    costs = pr.cost_table(D["ev_costs"], netback)
-    one = pr.simulate_policy(test, costs, k=k, effectiveness=eff, check_cost=check)
-    curve = pr.policy_curve(test, costs, ks=(5, 10, 15, 20, 25, 30, 40, 50, 75, 100),
-                            effectiveness=eff, check_cost=check)
-    return costs, one, curve
+    last, caught, actions = {}, {}, 0
+    for day, wk in test.sort_values("score", ascending=False).groupby("d", sort=True):
+        n = 0
+        for row in wk.itertuples():
+            if n >= k:
+                break
+            prev = last.get(row.uwi)
+            if prev is not None and (day - prev).days < 30:
+                continue
+            last[row.uwi] = day
+            n += 1
+            actions += 1
+            if row.y30 == 1:
+                caught.setdefault((row.uwi, row.next_event), row.next_type)
+    return {"actions": actions, "weeks": test["d"].nunique(),
+            "events": test.loc[test["y30"] == 1].drop_duplicates(["uwi", "next_event"]).shape[0],
+            "by_type": pd.Series(list(caught.values()), dtype=object).value_counts().to_dict()}
+
+
+def policy(k, eff, check, netback, area=None):
+    """Back-test on Jan-Sep 2026. With `area`, only that area's wells compete for its k visits."""
+    p, saving = picks(k, area), costs_for(netback)["Saving if caught"]
+    warned = sum(p["by_type"].values())
+    net = eff * sum(n * saving.get(t, 0.0) for t, n in p["by_type"].items()) - p["actions"] * check
+    return {"k": k, "weeks": p["weeks"], "actions": p["actions"], "events": p["events"], "events_warned": warned,
+            "event_recall": warned / max(p["events"], 1), "action_precision": warned / max(p["actions"], 1),
+            "net_saving_per_year": net * 52 / p["weeks"]}
+
+
+def policy_curve(eff, check, netback):
+    return pd.DataFrame([policy(k, eff, check, netback) for k in POLICY_KS])
 
 
 def risk_rgb(p):
@@ -204,10 +241,15 @@ st.markdown(f'<div class="sub">Strathcona heavy-oil PCP wells · week of {latest
             f'{len(latest):,} wells scored · risk = chance of a rod, pump or tubing failure in the next 4–30 days</div>',
             unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["This Monday", "Does it work, and is it worth it?"])
+# Only the open view is drawn (st.tabs would build both on every click).
+TAB1, TAB2 = "This Monday", "Does it work, and is it worth it?"
+view = st.segmented_control("View", [TAB1, TAB2], default=TAB1, key="view", label_visibility="collapsed")
+if view is None:                       # clicking the open view again deselects it: stay where we were
+    view = st.session_state.get("last_view", TAB1)
+st.session_state["last_view"] = view
 
 # ====================================================================== tab 1
-with tab1:
+if view == TAB1:
     c1, c2, c3 = st.columns([2, 2, 3])
     c3.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
     with c3.expander("ℹ️  How the model works"):
@@ -245,7 +287,7 @@ So a well scored 55% really does break about half the time or more, roughly **4�
     shown["on_list"] = shown["rank"] <= k
     top = shown[shown["on_list"]]
 
-    _, pol, _ = run_policy(k, 0.5, 1500, pr.DEFAULT_NETBACK_BBL, None if area_pick == "All areas" else area_pick)
+    pol = policy(k, 0.5, 1500, pr.DEFAULT_NETBACK_BBL, None if area_pick == "All areas" else area_pick)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Wells to visit" + (", all areas" if area_pick == "All areas" else f", {area_pick}"), f"{len(top)}",
               border=True, help="The highest-risk wells: bigger dots with a dark outline on the map.")
@@ -293,7 +335,7 @@ So a well scored 55% really does break about half the time or more, roughly **4�
     sel_here = shown[shown["uwi"] == sel_uwi]
     if len(sel_here):
         s0 = sel_here.iloc[0]
-        view = pdk.ViewState(latitude=float(s0["lat"]), longitude=float(s0["lon"]), zoom=13.5, pitch=0, bearing=0,
+        view = pdk.ViewState(latitude=float(s0["lat"]), longitude=float(s0["lon"]), zoom=12.3, pitch=0, bearing=0,
                              min_zoom=7.5, max_zoom=16, transitionDuration=900)
         sel_df = sel_here[["lon", "lat"]]
     else:
@@ -363,7 +405,7 @@ So a well scored 55% really does break about half the time or more, roughly **4�
                     f = go.Figure(go.Scatter(x=w["d"], y=w[sig[pick]], mode="lines", line=dict(color=BLUE, width=2),
                                              hovertemplate="%{x|%d %b %Y}: %{y:.2f}<extra></extra>"))
                     for d in ev["d"]:
-                        f.add_vline(x=d, line=dict(color=RED, width=1, dash="dot"))
+                        f.add_vline(x=d, line=dict(color="rgba(180,35,24,0.35)", width=1))
                     f.update_layout(title=dict(text=f"{pick}, 7-day average · red lines = failures", font=dict(size=14)),
                                     showlegend=False)
                     st.plotly_chart(style(f, 240), width="stretch")
@@ -408,21 +450,33 @@ So a well scored 55% really does break about half the time or more, roughly **4�
                 well_panel(r)
         off_list = len(sel_here) and not sel_here.iloc[0]["on_list"]
         box = st.container(height=420 if off_list else 600, border=False)
+        groups = [
+            ("🔁 Chronic wells → engineering review",
+             "Failed 6+ times in 12 months. Another quick repair won't hold: find the root cause.",
+             top[top["fails365"] >= 6]),
+            ("⚠️ New warnings → field check",
+             "Not chronic, but at risk now. This is where the model beats the most-failed-wells shortcut.",
+             top[top["fails365"] < 6]),
+        ]
         with box:
-            for _, r in top.iterrows():
-                chronic = " · 🔁 chronic" if r["fails365"] >= 6 else ""
-                is_sel = r["uwi"] == sel_uwi
-                label = f"{'▾' if is_sel else '▸'}  #{r['rank']}  {r['uwi']} · {r['area']} · {r['score']:.0%}{chronic}"
-                if st.button(label, key=f"pick_{r['uwi']}", width="stretch",
-                             type="primary" if is_sel else "secondary"):
+            for title, note, g in groups:
+                if not len(g):
+                    continue
+                st.markdown(f"**{title}** · {len(g)}")
+                st.caption(note)
+                for _, r in g.iterrows():
+                    is_sel = r["uwi"] == sel_uwi
+                    label = f"{'▾' if is_sel else '▸'}  #{r['rank']}  {r['uwi']} · {r['area']} · {r['score']:.0%}"
+                    if st.button(label, key=f"pick_{r['uwi']}", width="stretch",
+                                 type="primary" if is_sel else "secondary"):
+                        if is_sel:
+                            st.session_state.pop("well_uwi", None)     # click again to close
+                        else:
+                            st.session_state["well_uwi"] = r["uwi"]
+                        st.rerun()
                     if is_sel:
-                        st.session_state.pop("well_uwi", None)     # click again to close
-                    else:
-                        st.session_state["well_uwi"] = r["uwi"]
-                    st.rerun()
-                if is_sel:
-                    with st.container(border=True):
-                        well_panel(r)
+                        with st.container(border=True):
+                            well_panel(r)
         st.download_button("Download the list (CSV)",
                            top[["rank", "uwi", "well_name", "area", "score", "fails365", "days_since_fail",
                                 "last_ftype", "make", "lat", "lon"]].to_csv(index=False),
@@ -439,7 +493,7 @@ def section(step, question, answer):
                 unsafe_allow_html=True)
 
 
-with tab2:
+if view == TAB2:
     base_costs = pr.cost_table(D["ev_costs"])
     rod_after, rod_before = base_costs.loc["Rods", "Reactive cost"], base_costs.loc["Rods", "Planned cost"]
     n_model = head["model_top25_precision"] * 25
@@ -519,7 +573,7 @@ re-running the test on random mixes of the 38 test weeks 1,000 times.
         netback = st.slider("Netback: profit lost per barrel not produced ($/bbl)", 30.0, 90.0,
                             pr.DEFAULT_NETBACK_BBL, 0.5,
                             help="Strathcona Q3 2026: sales $99.47 − royalties $22.97 − energy $5.77 − transport $9.13")
-    costs, one, curve = run_policy(kk, eff, check, netback)
+    costs, one, curve = costs_for(netback), policy(kk, eff, check, netback), policy_curve(eff, check, netback)
     yearly = one["net_saving_per_year"]
     best = curve.loc[curve["net_saving_per_year"].idxmax()]
     w1, w2, w3 = st.columns(3)
@@ -567,8 +621,8 @@ re-running the test on random mixes of the 38 test weeks 1,000 times.
                 unsafe_allow_html=True)
 
     # ---- cheaper screening
-    truck = run_policy(20, eff, 1500, netback)[1]
-    remote = run_policy(100, eff, 200, netback)[1]
+    truck = policy(20, eff, 1500, netback)
+    remote = policy(100, eff, 200, netback)
     st.markdown('<div class="q" style="font-size:1.05rem;margin-top:14px">A cheaper way to check catches far more'
                 '</div><div class="a">If an engineer first reviews the top 100 wells\' data remotely (about $200 '
                 'each, an assumption to confirm), only the worrying ones need a truck. Same model, same data:</div>',
